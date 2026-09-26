@@ -1,0 +1,19 @@
+{
+  "name": "nearpad",
+  "version": "0.1.0",
+  "description": "Live shared notepad for nearby laptops",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "make-icon": "node scripts/make-icon.js",
+    "test": "node scripts/test-crypto.js && node scripts/test-session.js",
+    "e2e": "node scripts/e2e.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@noble/curves": "2.4.0",
+    "electron": "^41.7.1",
+    "ws": "^8.21.3",
+    "yjs": "^13.6.33"
+  }
+}

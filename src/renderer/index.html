@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'" />
+  <title>NearPad</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- 1. Start screen -->
+  <section id="lobby">
+    <h1>NearPad</h1>
+    <p class="sub">Encrypted shared notepad for nearby laptops</p>
+
+    <button id="btn-host" class="primary">Start session (show code)</button>
+
+    <div class="or">or join a session</div>
+    <div class="row">
+      <select id="host-list"><option value="">Scan to find nearby laptops</option></select>
+      <button id="btn-scan">Scan</button>
+    </div>
+    <input id="host-input" placeholder="or type its address, e.g. 192.168.1.20" autocomplete="off" />
+    <input id="code-input" class="code" placeholder="CODE" maxlength="9" autocomplete="off" />
+    <button id="btn-join">Join</button>
+    <p id="lobby-msg" class="msg err"></p>
+  </section>
+
+  <!-- 2. Host waiting for the other laptop -->
+  <section id="waiting" hidden>
+    <p class="sub">Enter this code on the other laptop</p>
+    <div id="code-show" class="code-big">----</div>
+    <p id="countdown" class="sub"></p>
+    <p id="attempts" class="msg err"></p>
+    <button id="btn-cancel">Cancel</button>
+  </section>
+
+  <!-- 3. Notepad -->
+  <section id="pad" hidden>
+    <header>
+      <span id="dot" class="dot"></span>
+      <span id="status">Connected</span>
+      <span class="spacer"></span>
+      <button id="btn-save" title="Saves a plain, unencrypted .txt file">Save</button>
+      <button id="btn-exit" class="danger" title="End session and wipe notes">Exit</button>
+    </header>
+    <textarea id="editor" spellcheck="false" placeholder="Type here - it appears on the other laptop..."></textarea>
+    <p id="pad-msg" class="msg"></p>
+  </section>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

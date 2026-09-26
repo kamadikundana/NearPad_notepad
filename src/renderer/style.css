@@ -1,0 +1,42 @@
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font: 14px system-ui, Segoe UI, sans-serif;
+  background: #fbfbf8;
+  color: #222;
+  display: flex;
+  flex-direction: column;
+}
+[hidden] { display: none !important; }
+
+#lobby { padding: 28px 24px; display: flex; flex-direction: column; gap: 10px; }
+#lobby h1 { margin: 0; font-size: 26px; }
+.sub { margin: 0 0 12px; color: #666; }
+.or { text-align: center; color: #999; margin: 6px 0; }
+
+input, button { font: inherit; padding: 9px 12px; border-radius: 8px; border: 1px solid #ccc; background: #fff; }
+button { cursor: pointer; }
+button:hover { background: #f0f0ee; }
+button.primary { background: #2b6cd6; border-color: #2b6cd6; color: #fff; }
+button.primary:hover { background: #2358b0; }
+button.danger { color: #b3261e; border-color: #e3b5b1; }
+
+#pad { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+#pad header { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid #e4e4de; }
+#pad header button { padding: 5px 12px; }
+.spacer { flex: 1; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: #e0a800; }
+.dot.live { background: #2e9e4f; }
+#editor {
+  flex: 1; width: 100%; border: 0; outline: 0; resize: none; padding: 12px;
+  font: 15px/1.5 Consolas, ui-monospace, monospace; background: transparent; color: inherit;
+}
+.msg { margin: 0; padding: 0 12px 8px; min-height: 1.2em; color: #666; font-size: 12px; }
+#lobby .msg { padding: 0; color: #b3261e; }
+
+.row { display: flex; gap: 8px; }
+.row select { flex: 1; min-width: 0; padding: 9px 8px; border-radius: 8px; border: 1px solid #ccc; background: #fff; font: inherit; }
+input.code { text-transform: uppercase; letter-spacing: 3px; text-align: center; font: 600 18px Consolas, monospace; }
+.msg.err { color: #b3261e; }
+#waiting { padding: 36px 24px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.code-big { font: 700 40px Consolas, ui-monospace, monospace; letter-spacing: 4px; padding: 14px 18px; background: #fff; border: 2px dashed #2b6cd6; border-radius: 12px; user-select: all; }
