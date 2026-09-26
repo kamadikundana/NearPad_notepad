@@ -12,8 +12,10 @@
   "license": "MIT",
   "dependencies": {
     "@noble/curves": "2.4.0",
-    "electron": "^41.7.1",
     "ws": "^8.21.3",
     "yjs": "^13.6.33"
+  },
+  "devDependencies": {
+    "electron": "^41.7.1"
   }
 }
