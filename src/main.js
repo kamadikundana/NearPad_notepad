@@ -171,7 +171,7 @@ handle('session:join', async (host, code) => {
   }
 });
 
-handle('session:scan', async () => ({ ok: true, hosts: await discovery.scan(1500) }));
+handle('session:scan', async () => ({ ok: true, hosts: await discovery.scan(DEFAULT_PORT, 1500) }));
 handle('session:leave', () => {
   session.leave();
   return { ok: true };

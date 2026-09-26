@@ -40,3 +40,4 @@ input.code { text-transform: uppercase; letter-spacing: 3px; text-align: center;
 .msg.err { color: #b3261e; }
 #waiting { padding: 36px 24px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
 .code-big { font: 700 40px Consolas, ui-monospace, monospace; letter-spacing: 4px; padding: 14px 18px; background: #fff; border: 2px dashed #2b6cd6; border-radius: 12px; user-select: all; }
+.addr { font: 600 16px Consolas, monospace; user-select: all; background: #eef3fc; padding: 6px 12px; border-radius: 8px; }

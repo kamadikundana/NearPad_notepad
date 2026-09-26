@@ -6,7 +6,7 @@
   "scripts": {
     "start": "electron .",
     "make-icon": "node scripts/make-icon.js",
-    "test": "node scripts/test-crypto.js && node scripts/test-session.js",
+    "test": "node scripts/test-crypto.js && node scripts/test-session.js && node scripts/test-discovery.js",
     "e2e": "node scripts/e2e.js"
   },
   "license": "MIT",

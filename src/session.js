@@ -68,6 +68,7 @@ class Session extends EventEmitter {
       code: this.role === 'host' && !this.paired ? C.formatCode(this.code) : null,
       expiresAt: this.role === 'host' && !this.paired ? this.expiresAt : null,
       attemptsLeft: this.attemptsLeft,
+      addresses: this.role === 'host' && !this.paired ? discovery.localAddresses() : [],
     };
   }
 
@@ -235,7 +236,11 @@ class Session extends EventEmitter {
         ws.terminate();
         reject(new Error(msg));
       };
-      ws.once('error', () => bail(`Could not reach ${host}. Are you on the same Wi-Fi?`));
+      ws.once('error', (err) => {
+        const c = err && err.code;
+        if (c === 'ECONNREFUSED') bail(`${host} is reachable but no NearPad session is open there (or its code expired). Start a new session on that laptop.`);
+        else bail(`Could not reach ${host}. The other laptop's firewall (Wi-Fi set to Public?) or the Wi-Fi itself is blocking the connection.`);
+      });
       ws.once('close', () => bail('Wrong code, or the session is no longer available.'));
       ws.once('open', () => ws.send(JSON.stringify({ t: 'hello', m: b64(spake.message()) })));
       ws.on('message', (data, isBinary) => {

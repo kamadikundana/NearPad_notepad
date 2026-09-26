@@ -29,6 +29,7 @@ function renderStatus(s) {
   if (s.role === 'host' && !s.paired) {
     show('waiting');
     $('code-show').textContent = s.code || '----';
+    $('addr-show').textContent = (s.addresses || []).join('   ') || 'unknown';
     $('attempts').textContent = s.attemptsLeft < 3 ? `${s.attemptsLeft} wrong-code attempt(s) left` : '';
     stopCountdown();
     const tick = () => {

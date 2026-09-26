@@ -3,6 +3,7 @@
 // Discovery only says "a NearPad host is at this address"; it never carries the code, and a
 // fake host can't complete pairing without knowing the code.
 const dgram = require('dgram');
+const net = require('net');
 const os = require('os');
 
 const DISCOVERY_PORT = 47801;
@@ -19,6 +20,45 @@ function broadcastAddresses() {
     }
   }
   return [...out];
+}
+
+function localAddresses() {
+  const out = [];
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const i of list || []) if (i.family === 'IPv4' && !i.internal) out.push(i.address);
+  }
+  return out;
+}
+
+// Fallback for networks that drop UDP broadcasts: try a quick TCP connect to the session port
+// on every address in our /24. A bare TCP connect/close does not touch the pairing logic.
+function sweep(port, ms = 900) {
+  const targets = [];
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const i of list || []) {
+      if (i.family !== 'IPv4' || i.internal) continue;
+      const [a, b, c, d] = i.address.split('.').map(Number);
+      for (let h = 1; h < 255; h++) if (h !== d) targets.push(`${a}.${b}.${c}.${h}`);
+    }
+  }
+  const found = [];
+  let next = 0;
+  const probe = (addr) =>
+    new Promise((resolve) => {
+      const s = net.connect({ host: addr, port });
+      const done = (ok) => {
+        s.destroy();
+        if (ok) found.push({ name: 'Possible NearPad host', address: addr, port });
+        resolve();
+      };
+      s.setTimeout(ms, () => done(false));
+      s.once('connect', () => done(true));
+      s.once('error', () => done(false));
+    });
+  const worker = async () => {
+    while (next < targets.length) await probe(targets[next++]);
+  };
+  return Promise.all(Array.from({ length: 96 }, worker)).then(() => found);
 }
 
 // Host side: answer probes while an unpaired session is open. Returns a stop() function.
@@ -49,7 +89,7 @@ function respond(sessionPort) {
 }
 
 // Guest side: broadcast a probe and collect replies for `ms`.
-function scan(ms = 1500) {
+function scanUdp(ms = 1500) {
   return new Promise((resolve) => {
     const found = new Map();
     const sock = dgram.createSocket('udp4');
@@ -82,4 +122,12 @@ function scan(ms = 1500) {
   });
 }
 
-module.exports = { respond, scan, DISCOVERY_PORT };
+async function scan(sessionPort, ms = 1500) {
+  const [udp, tcp] = await Promise.all([scanUdp(ms), sweep(sessionPort)]);
+  const mine = new Set(localAddresses());
+  const merged = new Map();
+  for (const h of [...tcp, ...udp]) if (!mine.has(h.address)) merged.set(h.address, h); // UDP entry has the real name
+  return [...merged.values()];
+}
+
+module.exports = { respond, scan, localAddresses, DISCOVERY_PORT };
