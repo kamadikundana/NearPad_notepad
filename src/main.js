@@ -120,7 +120,7 @@ function createTray() {
 
 let lastToast = 0;
 session.on('doc-changed', (delta, remote) => {
-  if (win) win.webContents.send('doc-delta', delta);
+  if (win) win.webContents.send('doc-delta', delta, remote);
   const hidden = !win || !win.isVisible() || !win.isFocused();
   // The toast never shows note content: it could be read on a locked screen or over a shoulder.
   if (remote && hidden && Notification.isSupported() && Date.now() - lastToast > 5000) {

@@ -48,6 +48,16 @@
     <p class="legend"><span class="swatch who-host"></span>Host<span class="swatch who-guest"></span>Guest</p>
     <div id="editor" contenteditable="true" spellcheck="false" data-placeholder="Type here - it appears on the other laptop..."></div>
     <p id="pad-msg" class="msg"></p>
+
+    <div id="exit-confirm" class="overlay" hidden>
+      <div class="overlay-box">
+        <p>End the session? Anything you have not saved will be deleted.</p>
+        <div class="overlay-actions">
+          <button id="exit-cancel">Cancel</button>
+          <button id="exit-yes" class="danger">End session</button>
+        </div>
+      </div>
+    </div>
   </section>
 
   <script src="renderer.js"></script>

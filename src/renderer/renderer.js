@@ -2,10 +2,12 @@
 const $ = (id) => document.getElementById(id);
 const editor = $('editor');
 let lastValue = ''; // plain text mirror of what #editor currently shows
+let lastDelta = []; // most recent authoritative delta, used to "tidy up" colors on blur
 let countdownTimer = null;
 
 function show(screen) {
   for (const id of ['lobby', 'waiting', 'pad']) $(id).hidden = id !== screen;
+  $('exit-confirm').hidden = true;
   if (screen === 'pad') editor.focus();
 }
 
@@ -126,9 +128,17 @@ function applyDelta(delta) {
 editor.addEventListener('input', () => {
   const plain = editor.textContent;
   const edit = diff(lastValue, plain);
-  lastValue = plain; // optimistic; applyDelta() will reconcile once the authoritative delta arrives
+  lastValue = plain; // optimistic; the browser already shows this correctly, caret and all
   window.nearpad.sendEdit(edit);
 });
+
+// Every edit's confirmation comes back over IPC, one message per keystroke. For OUR OWN typing
+// those can arrive out of order relative to how fast we're typing (e.g. the echo for keystroke 1
+// landing after keystroke 3 has already happened locally) - rebuilding the DOM from a stale one
+// would overwrite newer text and yank the caret back to some earlier position. So local edits are
+// left alone (the browser already shows them correctly); only genuinely new text from the other
+// laptop is rendered immediately. Local text still gets its color - see the blur handler below.
+editor.addEventListener('blur', () => applyDelta(lastDelta));
 
 // contenteditable normally turns Enter into <div>/<br> elements, which would break the plain-
 // text model above - force a literal '\n' character instead, consistent with our own rendering.
@@ -145,7 +155,11 @@ editor.addEventListener('paste', (e) => {
   document.execCommand('insertText', false, e.clipboardData.getData('text/plain'));
 });
 
-window.nearpad.onDocDelta(applyDelta);
+window.nearpad.onDocDelta((delta, remote) => {
+  lastDelta = delta;
+  if (remote) applyDelta(delta); // new text from the other laptop: always show it right away
+  // our own edits: already visible via native typing; colored in on blur (see above)
+});
 window.nearpad.onStatus(renderStatus);
 window.nearpad.onNotice((t) => {
   flash($('pad-msg'), t, 0);
@@ -154,7 +168,9 @@ window.nearpad.onNotice((t) => {
 window.nearpad.onEnded((reason) => {
   stopCountdown();
   lastValue = '';
+  lastDelta = [];
   editor.replaceChildren();
+  $('exit-confirm').hidden = true;
   show('lobby');
   flash($('lobby-msg'), reason);
 });
@@ -206,7 +222,8 @@ $('btn-join').addEventListener('click', async () => {
     const res = await window.nearpad.join(host, $('code-input').value);
     if (!res.ok) return flash($('lobby-msg'), res.error);
     $('code-input').value = '';
-    applyDelta(res.delta || []);
+    lastDelta = res.delta || [];
+    applyDelta(lastDelta);
     renderStatus(await window.nearpad.getStatus());
   } finally {
     clearTimeout(watchdog);
@@ -220,10 +237,17 @@ $('btn-save').addEventListener('click', async () => {
   if (res.ok) flash($('pad-msg'), `Saved (unencrypted) to ${res.path}`);
 });
 
-$('btn-exit').addEventListener('click', async () => {
-  if (!confirm('End the session? Anything you have not saved will be deleted.')) return;
+// A native window.confirm() dialog is avoided here: in Electron it can leave the window unable
+// to receive keyboard focus afterward (a known quirk, worse with an always-on-top window), which
+// would make every field in the lobby look "stuck" right after ending a session. This in-page
+// overlay never touches OS-level focus at all.
+$('btn-exit').addEventListener('click', () => { $('exit-confirm').hidden = false; });
+$('exit-cancel').addEventListener('click', () => { $('exit-confirm').hidden = true; });
+$('exit-yes').addEventListener('click', async () => {
+  $('exit-confirm').hidden = true;
   await window.nearpad.leave();
   lastValue = '';
+  lastDelta = [];
   editor.replaceChildren();
   show('lobby');
 });

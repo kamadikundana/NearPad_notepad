@@ -68,17 +68,45 @@ const launch = (profile, port) => procs.push(spawn(electron, ['.', `--profile=${
   assert.strictEqual(await B.ev("!document.getElementById('pad').hidden"), true, 'guest moved to notepad');
   assert.match(await B.ev("document.getElementById('status').textContent"), /Connected/);
 
-  // live typing both directions, into the contenteditable notepad
-  const type = (X, text) => X.ev(`(() => { const e = document.getElementById('editor'); e.textContent += ${JSON.stringify(text)}; e.dispatchEvent(new Event('input')); })()`);
+  // Live typing both directions, into the contenteditable notepad. Each character is typed and
+  // committed SEPARATELY (like a real keystroke, not one bulk edit) so every one of them makes
+  // its own round trip through IPC - this is what actually exercises (and would expose) the
+  // "late-arriving echo overwrites newer text and yanks the caret back" class of bug.
   const plain = (X) => X.ev("document.getElementById('editor').textContent");
+  const caretAtEnd = (X) =>
+    X.ev(`(() => {
+      const e = document.getElementById('editor'); const s = window.getSelection();
+      if (!s.rangeCount) return false;
+      const r = s.getRangeAt(0);
+      const tail = document.createRange();
+      tail.selectNodeContents(e);
+      tail.setStart(r.endContainer, r.endOffset);
+      return tail.toString().length === 0;
+    })()`);
+  async function type(X, text) {
+    await X.ev(`(() => {
+      const e = document.getElementById('editor'); e.focus();
+      const r = document.createRange(); r.selectNodeContents(e); r.collapse(false);
+      const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    })()`);
+    for (const ch of text) await X.ev(`document.execCommand('insertText', false, ${JSON.stringify(ch)})`);
+  }
+
   await type(A, 'hello from A');
+  assert.strictEqual(await plain(A), 'hello from A', 'typed characters land in order on the typer\'s own screen, no jump-back');
+  assert.ok(await caretAtEnd(A), 'caret stays at the end while typing, does not jump back');
   await wait(600);
   assert.strictEqual(await plain(B), 'hello from A', 'A -> B');
   await type(B, ' + hi from B');
+  assert.strictEqual(await plain(B), 'hello from A + hi from B', 'typed characters land in order for the guest too');
+  assert.ok(await caretAtEnd(B), 'guest caret stays at the end while typing');
   await wait(600);
   assert.strictEqual(await plain(A), 'hello from A + hi from B', 'B -> A');
 
-  // each side's text is colored by author, and it carries over to the other window
+  // Own text is colored in once you click away (a deliberate tradeoff to avoid the jump-back
+  // bug above); the other side's text is colored immediately since it's rendered on arrival.
+  await B.ev("document.getElementById('editor').blur()");
+  await wait(200);
   const hostSpans = await B.ev("[...document.querySelectorAll('#editor .who-host')].map(s => s.textContent).join('')");
   const guestSpans = await B.ev("[...document.querySelectorAll('#editor .who-guest')].map(s => s.textContent).join('')");
   assert.strictEqual(hostSpans, 'hello from A', 'host text colored as host');
@@ -103,13 +131,30 @@ const launch = (profile, port) => procs.push(spawn(electron, ['.', `--profile=${
     fs.writeFileSync(`scripts/e2e-${n}.png`, Buffer.from(r.result.data, 'base64'));
   }
 
-  // Exit wipes and returns to lobby; other side is told
-  await A.ev("window.confirm = () => true; document.getElementById('btn-exit').click()");
+  // Exit uses an in-page overlay, not a native OS dialog (see renderer.js for why), and wipes
+  // and returns to lobby; the other side is told.
+  await A.ev("document.getElementById('btn-exit').click()");
+  await wait(200);
+  assert.strictEqual(await A.ev("document.getElementById('exit-confirm').hidden"), false, 'confirm overlay shown');
+  await A.ev("document.getElementById('exit-yes').click()");
   await wait(1200);
   assert.strictEqual(await plain(A), '', 'host editor wiped');
   assert.strictEqual(await A.ev("!document.getElementById('lobby').hidden"), true, 'host back at lobby');
   assert.match(await B.ev("document.getElementById('status').textContent"), /Disconnected/, 'guest notified');
   assert.ok((await plain(B)).length > 0, 'guest keeps notes to save');
+
+  // The actual regression reported: after Exit, the lobby's inputs must still accept typing.
+  // (This is exactly what a native window.confirm() dialog could break in Electron.)
+  await A.ev(`(() => {
+    const el = document.getElementById('code-input'); el.focus();
+    document.execCommand('insertText', false, 'X');
+  })()`);
+  assert.strictEqual(await A.ev("document.getElementById('code-input').value"), 'X', 'code field is typeable again after Exit');
+  await A.ev(`(() => {
+    const el = document.getElementById('host-input'); el.focus();
+    document.execCommand('insertText', false, '9');
+  })()`);
+  assert.strictEqual(await A.ev("document.getElementById('host-input').value"), '9', 'address field is typeable again after Exit');
 
   console.log('E2E PASSED');
 })().then(() => cleanup(0)).catch((e) => { console.error('E2E FAILED:', e.message); cleanup(1); });
