@@ -47,9 +47,9 @@ class Session extends EventEmitter {
 
     const doc = this.doc;
     const text = this.text;
-    text.observe((_e, tr) => {
-      if (tr.origin === 'remote') this.emit('remote-text', text.toString());
-    });
+    // Fires on every change, local or remote, so the renderer can redraw who-typed-what
+    // coloring; 'remote' tells it whether this one came from the other laptop (for toasts).
+    text.observe((_e, tr) => this.emit('doc-changed', text.toDelta(), tr.origin === 'remote'));
     doc.on('update', (update, origin) => {
       if (origin !== 'remote') this.send(update);
     });
@@ -76,12 +76,19 @@ class Session extends EventEmitter {
     return this.text.toString();
   }
 
+  getDelta() {
+    return this.text.toDelta();
+  }
+
   applyLocalEdit({ start, del, ins }) {
     const len = this.text.length;
     if (start < 0 || del < 0 || start + del > len) return; // ignore out-of-range edits
+    // Tag our own inserts with who we are, so both windows can color text by author. This
+    // travels inside the CRDT update itself, so it survives the encrypted hop unchanged.
+    const who = this.role === 'host' ? 'host' : 'guest';
     this.doc.transact(() => {
       if (del > 0) this.text.delete(start, del);
-      if (ins) this.text.insert(start, ins);
+      if (ins) this.text.insert(start, ins, { who });
     });
   }
 
@@ -127,6 +134,7 @@ class Session extends EventEmitter {
   // ---------------- host ----------------
 
   async host({ port = DEFAULT_PORT, ttlMs = 120000, maxAttempts = 3, announce = true } = {}) {
+    if (this.active) throw new Error('A session is already open.');
     await C.init();
     this.role = 'host';
     this.code = C.generateCode();
@@ -174,6 +182,7 @@ class Session extends EventEmitter {
     let spake = null;
     let result = null;
     let finished = false;
+    let attempted = false; // did they actually send a handshake message, or just connect/disconnect?
 
     const end = (success) => {
       if (finished) return;
@@ -182,6 +191,12 @@ class Session extends EventEmitter {
       this.busy = false;
       if (success) return;
       ws.terminate();
+      if (!attempted) {
+        // A bare connect/close (e.g. the Scan feature's reachability probe, or a stray port
+        // scan) proves nothing about the code, so it must not cost a real guess.
+        this.emit('changed');
+        return;
+      }
       this.attemptsLeft -= 1;
       if (this.attemptsLeft <= 0) this.closePairing('Too many wrong codes. Start a new session.');
       else this.emit('attempt-failed', this.attemptsLeft);
@@ -191,6 +206,7 @@ class Session extends EventEmitter {
 
     ws.on('close', () => end(false));
     ws.on('message', (data, isBinary) => {
+      attempted = true;
       try {
         if (isBinary) throw new Error('binary during handshake');
         const msg = JSON.parse(data.toString());
@@ -220,6 +236,17 @@ class Session extends EventEmitter {
   // ---------------- guest ----------------
 
   async join(host, code, port = DEFAULT_PORT) {
+    if (this.active) throw new Error('A session is already open.');
+    this.role = 'connecting'; // reserve immediately so a second click can't race this one
+    try {
+      await this._join(host, code, port);
+    } catch (err) {
+      this.role = null; // free it up so the next attempt isn't blocked by this failed one
+      throw err;
+    }
+  }
+
+  async _join(host, code, port) {
     await C.init();
     const canon = C.normalizeCode(code);
     if (!canon) throw new Error('That code is not valid. It has 8 letters/numbers, e.g. K7QM-4XPD.');

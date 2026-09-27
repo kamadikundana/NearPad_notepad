@@ -1,7 +1,7 @@
 'use strict';
 const $ = (id) => document.getElementById(id);
 const editor = $('editor');
-let lastValue = '';
+let lastValue = ''; // plain text mirror of what #editor currently shows
 let countdownTimer = null;
 
 function show(screen) {
@@ -12,11 +12,6 @@ function show(screen) {
 function flash(el, text, ms = 5000) {
   el.textContent = text;
   if (text && ms) setTimeout(() => { if (el.textContent === text) el.textContent = ''; }, ms);
-}
-
-function setEditorValue(text) {
-  lastValue = text;
-  editor.value = text;
 }
 
 function stopCountdown() {
@@ -56,22 +51,101 @@ function diff(oldStr, newStr) {
   return { start, del: oldEnd - start, ins: newStr.slice(start, newEnd) };
 }
 
+// ---- caret helpers: map a plain-text character offset <-> a DOM Range over #editor's text
+// nodes. Works because every node we ever put in #editor is a plain text node (no <br>, no
+// nested markup), including literal '\n' characters, so offsets always match plain-text length.
+function textOffset(node, offset) {
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+  let total = 0, cur;
+  while ((cur = walker.nextNode())) {
+    if (cur === node) return total + offset;
+    total += cur.nodeValue.length;
+  }
+  return total;
+}
+
+function getCaret() {
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return null;
+  const r = sel.getRangeAt(0);
+  if (!editor.contains(r.startContainer) || !editor.contains(r.endContainer)) return null;
+  return { start: textOffset(r.startContainer, r.startOffset), end: textOffset(r.endContainer, r.endOffset) };
+}
+
+function setCaret(start, end) {
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+  let node, total = 0, startNode, startOff, endNode, endOff;
+  while ((node = walker.nextNode())) {
+    const len = node.nodeValue.length;
+    if (startNode === undefined && start <= total + len) { startNode = node; startOff = start - total; }
+    if (endNode === undefined && end <= total + len) { endNode = node; endOff = end - total; }
+    total += len;
+  }
+  if (startNode === undefined) { startNode = editor; startOff = editor.childNodes.length; }
+  if (endNode === undefined) { endNode = editor; endOff = editor.childNodes.length; }
+  const range = document.createRange();
+  range.setStart(startNode, startOff);
+  range.setEnd(endNode, endOff);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+// Rebuild #editor from a Yjs delta ([{insert, attributes:{who}}...]) as colored spans, and
+// return its plain text. Uses only textContent/createElement - note text can never become HTML.
+function renderDelta(delta) {
+  const frag = document.createDocumentFragment();
+  let plain = '';
+  for (const op of delta) {
+    if (typeof op.insert !== 'string' || !op.insert) continue;
+    const who = op.attributes && op.attributes.who === 'guest' ? 'guest' : 'host';
+    const span = document.createElement('span');
+    span.className = `who-${who}`;
+    span.appendChild(document.createTextNode(op.insert));
+    frag.appendChild(span);
+    plain += op.insert;
+  }
+  return { frag, plain };
+}
+
+function applyDelta(delta) {
+  const focused = document.activeElement === editor;
+  const caret = focused ? getCaret() : null;
+  const { frag, plain } = renderDelta(delta);
+
+  // Shift the caret by whatever changed between what we last showed and the authoritative
+  // text (a no-op for our own just-typed edit; a real shift when it came from the other side).
+  const { start, del, ins } = diff(lastValue, plain);
+  const adjust = (pos) => (pos <= start ? pos : pos >= start + del ? pos + ins.length - del : start + ins.length);
+
+  lastValue = plain;
+  editor.replaceChildren(frag);
+  if (caret && !$('pad').hidden) setCaret(adjust(caret.start), adjust(caret.end));
+}
+
 editor.addEventListener('input', () => {
-  const edit = diff(lastValue, editor.value);
-  lastValue = editor.value;
+  const plain = editor.textContent;
+  const edit = diff(lastValue, plain);
+  lastValue = plain; // optimistic; applyDelta() will reconcile once the authoritative delta arrives
   window.nearpad.sendEdit(edit);
 });
 
-// Apply a remote change without losing the local caret position. Text only ever goes into
-// textarea.value, never into HTML.
-window.nearpad.onRemoteText((text) => {
-  const { start, del, ins } = diff(lastValue, text);
-  const adjust = (pos) => (pos <= start ? pos : pos >= start + del ? pos + ins.length - del : start + ins.length);
-  const s = adjust(editor.selectionStart), e = adjust(editor.selectionEnd);
-  setEditorValue(text);
-  editor.setSelectionRange(s, e);
+// contenteditable normally turns Enter into <div>/<br> elements, which would break the plain-
+// text model above - force a literal '\n' character instead, consistent with our own rendering.
+editor.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    document.execCommand('insertText', false, '\n');
+  }
 });
 
+// Always paste as plain text: never let pasted HTML/images/styles into the note.
+editor.addEventListener('paste', (e) => {
+  e.preventDefault();
+  document.execCommand('insertText', false, e.clipboardData.getData('text/plain'));
+});
+
+window.nearpad.onDocDelta(applyDelta);
 window.nearpad.onStatus(renderStatus);
 window.nearpad.onNotice((t) => {
   flash($('pad-msg'), t, 0);
@@ -79,7 +153,8 @@ window.nearpad.onNotice((t) => {
 });
 window.nearpad.onEnded((reason) => {
   stopCountdown();
-  setEditorValue('');
+  lastValue = '';
+  editor.replaceChildren();
   show('lobby');
   flash($('lobby-msg'), reason);
 });
@@ -87,7 +162,6 @@ window.nearpad.onEnded((reason) => {
 $('btn-host').addEventListener('click', async () => {
   const res = await window.nearpad.host();
   if (!res.ok) return flash($('lobby-msg'), res.error);
-  setEditorValue('');
   renderStatus(await window.nearpad.getStatus());
 });
 
@@ -119,26 +193,37 @@ $('host-list').addEventListener('change', () => {
   if ($('host-list').value) $('host-input').value = $('host-list').value;
 });
 
+let joining = false;
 $('btn-join').addEventListener('click', async () => {
+  if (joining) return; // belt-and-suspenders: the disabled attribute already blocks this
   const host = $('host-input').value.trim() || $('host-list').value;
   if (!host) return flash($('lobby-msg'), 'Scan for a laptop or type its address.');
+  joining = true;
   $('btn-join').disabled = true;
-  const res = await window.nearpad.join(host, $('code-input').value);
-  $('btn-join').disabled = false;
-  if (!res.ok) return flash($('lobby-msg'), res.error);
-  $('code-input').value = '';
-  setEditorValue(res.text || '');
-  renderStatus(await window.nearpad.getStatus());
+  // Safety net: if something leaves the invoke() promise unsettled, don't strand the UI.
+  const watchdog = setTimeout(() => { joining = false; $('btn-join').disabled = false; }, 15000);
+  try {
+    const res = await window.nearpad.join(host, $('code-input').value);
+    if (!res.ok) return flash($('lobby-msg'), res.error);
+    $('code-input').value = '';
+    applyDelta(res.delta || []);
+    renderStatus(await window.nearpad.getStatus());
+  } finally {
+    clearTimeout(watchdog);
+    joining = false;
+    $('btn-join').disabled = false;
+  }
 });
 
 $('btn-save').addEventListener('click', async () => {
-  const res = await window.nearpad.save(editor.value);
+  const res = await window.nearpad.save(editor.textContent);
   if (res.ok) flash($('pad-msg'), `Saved (unencrypted) to ${res.path}`);
 });
 
 $('btn-exit').addEventListener('click', async () => {
   if (!confirm('End the session? Anything you have not saved will be deleted.')) return;
   await window.nearpad.leave();
-  setEditorValue('');
+  lastValue = '';
+  editor.replaceChildren();
   show('lobby');
 });

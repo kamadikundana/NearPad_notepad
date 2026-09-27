@@ -28,9 +28,18 @@ button.danger { color: #b3261e; border-color: #e3b5b1; }
 .dot { width: 10px; height: 10px; border-radius: 50%; background: #e0a800; }
 .dot.live { background: #2e9e4f; }
 #editor {
-  flex: 1; width: 100%; border: 0; outline: 0; resize: none; padding: 12px;
+  flex: 1; width: 100%; border: 0; outline: 0; padding: 12px; overflow-y: auto;
   font: 15px/1.5 Consolas, ui-monospace, monospace; background: transparent; color: inherit;
+  white-space: pre-wrap; overflow-wrap: break-word; cursor: text;
 }
+#editor:empty::before { content: attr(data-placeholder); color: #999; pointer-events: none; }
+.who-host { color: #2b6cd6; }   /* blue: matches the app's accent color */
+.who-guest { color: #1f8a5f; }  /* teal-green: distinct from blue, red (errors) and body text */
+.legend { display: flex; align-items: center; gap: 6px; margin: 0; padding: 6px 12px 0; font-size: 11px; color: #777; }
+.swatch { width: 8px; height: 8px; border-radius: 50%; margin-left: 10px; }
+.swatch:first-child { margin-left: 0; }
+.swatch.who-host { background: #2b6cd6; }
+.swatch.who-guest { background: #1f8a5f; }
 .msg { margin: 0; padding: 0 12px 8px; min-height: 1.2em; color: #666; font-size: 12px; }
 #lobby .msg { padding: 0; color: #b3261e; }
 

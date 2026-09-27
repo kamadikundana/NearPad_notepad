@@ -119,11 +119,11 @@ function createTray() {
 // ---------- session events ----------
 
 let lastToast = 0;
-session.on('remote-text', (text) => {
-  if (win) win.webContents.send('remote-text', text);
+session.on('doc-changed', (delta, remote) => {
+  if (win) win.webContents.send('doc-delta', delta);
   const hidden = !win || !win.isVisible() || !win.isFocused();
   // The toast never shows note content: it could be read on a locked screen or over a shoulder.
-  if (hidden && Notification.isSupported() && Date.now() - lastToast > 5000) {
+  if (remote && hidden && Notification.isSupported() && Date.now() - lastToast > 5000) {
     lastToast = Date.now();
     const n = new Notification({ title: 'NearPad', body: 'New text from your paired laptop', silent: true });
     n.on('click', showWindow);
@@ -164,7 +164,7 @@ handle('session:join', async (host, code) => {
   if (!validHost(host)) return { ok: false, error: 'Enter a valid address, like 192.168.1.20.' };
   try {
     await session.join(host, code, DEFAULT_PORT);
-    return { ok: true, text: session.getText() };
+    return { ok: true, delta: session.getDelta(), role: session.role };
   } catch (err) {
     session.leave();
     return { ok: false, error: err.message };

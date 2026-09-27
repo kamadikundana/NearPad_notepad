@@ -68,20 +68,33 @@ const launch = (profile, port) => procs.push(spawn(electron, ['.', `--profile=${
   assert.strictEqual(await B.ev("!document.getElementById('pad').hidden"), true, 'guest moved to notepad');
   assert.match(await B.ev("document.getElementById('status').textContent"), /Connected/);
 
-  // live typing both directions
-  const type = (X, text) => X.ev(`(() => { const e = document.getElementById('editor'); e.value += ${JSON.stringify(text)}; e.dispatchEvent(new Event('input')); })()`);
+  // live typing both directions, into the contenteditable notepad
+  const type = (X, text) => X.ev(`(() => { const e = document.getElementById('editor'); e.textContent += ${JSON.stringify(text)}; e.dispatchEvent(new Event('input')); })()`);
+  const plain = (X) => X.ev("document.getElementById('editor').textContent");
   await type(A, 'hello from A');
   await wait(600);
-  assert.strictEqual(await B.ev("document.getElementById('editor').value"), 'hello from A', 'A -> B');
+  assert.strictEqual(await plain(B), 'hello from A', 'A -> B');
   await type(B, ' + hi from B');
   await wait(600);
-  assert.strictEqual(await A.ev("document.getElementById('editor').value"), 'hello from A + hi from B', 'B -> A');
+  assert.strictEqual(await plain(A), 'hello from A + hi from B', 'B -> A');
+
+  // each side's text is colored by author, and it carries over to the other window
+  const hostSpans = await B.ev("[...document.querySelectorAll('#editor .who-host')].map(s => s.textContent).join('')");
+  const guestSpans = await B.ev("[...document.querySelectorAll('#editor .who-guest')].map(s => s.textContent).join('')");
+  assert.strictEqual(hostSpans, 'hello from A', 'host text colored as host');
+  assert.strictEqual(guestSpans, ' + hi from B', 'guest text colored as guest');
+  assert.notStrictEqual(
+    await B.ev("getComputedStyle(document.querySelector('#editor .who-host')).color"),
+    await B.ev("getComputedStyle(document.querySelector('#editor .who-guest')).color"),
+    'host and guest text render in different colors'
+  );
 
   // HTML in a note must stay inert text
   await type(A, ' <img src=x onerror="document.title=\'PWNED\'">');
   await wait(600);
   assert.notStrictEqual(await B.ev('document.title'), 'PWNED');
-  assert.ok((await B.ev("document.getElementById('editor').value")).includes('<img'), 'markup delivered as plain text');
+  assert.ok((await plain(B)).includes('<img'), 'markup delivered as plain text');
+  assert.strictEqual(await B.ev("document.querySelectorAll('#editor img').length"), 0, 'no actual <img> element was created');
 
   // screenshots for the user
   const fs = require('fs');
@@ -93,10 +106,10 @@ const launch = (profile, port) => procs.push(spawn(electron, ['.', `--profile=${
   // Exit wipes and returns to lobby; other side is told
   await A.ev("window.confirm = () => true; document.getElementById('btn-exit').click()");
   await wait(1200);
-  assert.strictEqual(await A.ev("document.getElementById('editor').value"), '', 'host editor wiped');
+  assert.strictEqual(await plain(A), '', 'host editor wiped');
   assert.strictEqual(await A.ev("!document.getElementById('lobby').hidden"), true, 'host back at lobby');
   assert.match(await B.ev("document.getElementById('status').textContent"), /Disconnected/, 'guest notified');
-  assert.ok((await B.ev("document.getElementById('editor').value")).length > 0, 'guest keeps notes to save');
+  assert.ok((await plain(B)).length > 0, 'guest keeps notes to save');
 
   console.log('E2E PASSED');
 })().then(() => cleanup(0)).catch((e) => { console.error('E2E FAILED:', e.message); cleanup(1); });
